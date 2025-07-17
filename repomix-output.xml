@@ -1,4 +1,5 @@
 
+
 <directory_structure>
 .gitignore
 .prettierrc
@@ -22,7 +23,24 @@ src/auth/dto/register.dto.ts
 src/auth/guards/jwt-auth.guard.ts
 src/auth/guards/roles.guard.ts
 src/auth/strategies/jwt.strategy.ts
+src/buses/buses.controller.ts
+src/buses/buses.module.ts
+src/buses/buses.service.ts
+src/buses/dto/bus-owner-profile.dto.ts
+src/buses/dto/create-bus.dto.ts
+src/buses/dto/update-bus.dto.ts
 src/main.ts
+src/routes/dto/create-bus-route.dto.ts
+src/routes/dto/create-route.dto.ts
+src/routes/dto/update-bus-route.dto.ts
+src/routes/dto/update-route.dto.ts
+src/routes/routes.controller.ts
+src/routes/routes.module.ts
+src/routes/routes.service.ts
+src/schemas/bus-owner-profile.schema.ts
+src/schemas/bus-route.schema.ts
+src/schemas/bus.schema.ts
+src/schemas/route.schema.ts
 src/schemas/user.schema.ts
 test/app.e2e-spec.ts
 test/jest-e2e.json
@@ -30,8 +48,57 @@ tsconfig.build.json
 tsconfig.json
 </directory_structure>
 
-<files>
-This section contains the contents of the repository's files.
+
+<file path="src/app.controller.spec.ts">
+import { Test, TestingModule } from '@nestjs/testing';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+describe('AppController', () => {
+  let appController: AppController;
+
+  beforeEach(async () => {
+    const app: TestingModule = await Test.createTestingModule({
+      controllers: [AppController],
+      providers: [AppService],
+    }).compile();
+
+    appController = app.get<AppController>(AppController);
+  });
+
+  describe('root', () => {
+    it('should return "Hello World!"', () => {
+      expect(appController.getHello()).toBe('Hello World!');
+    });
+  });
+});
+</file>
+
+<file path="src/app.controller.ts">
+import { Controller, Get } from '@nestjs/common';
+import { AppService } from './app.service';
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  getHello(): string {
+    return this.appService.getHello();
+  }
+}
+</file>
+
+<file path="src/app.service.ts">
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
+export class AppService {
+  getHello(): string {
+    return 'Hello World!';
+  }
+}
+</file>
 
 <file path="src/auth/auth.controller.spec.ts">
 import { Test, TestingModule } from '@nestjs/testing';
@@ -317,20 +384,13 @@ export class AuthService {
 
 <file path="src/auth/decorators/current-user.decorator.ts">
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-
 import { Request } from 'express';
-
-export interface User {
-  // Define the properties of your user object here
-  id: string;
-  username: string;
-  // Add other properties as needed
-}
+import { UserDocument } from '../../schemas/user.schema';
 
 export const CurrentUser = createParamDecorator(
-  (data: unknown, ctx: ExecutionContext): User | undefined => {
+  (data: unknown, ctx: ExecutionContext): UserDocument => {
     const request = ctx.switchToHttp().getRequest<Request>();
-    return request.user as User | undefined;
+    return request.user as UserDocument;
   },
 );
 </file>
@@ -488,6 +548,1965 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 }
 </file>
 
+<file path="src/buses/buses.controller.ts">
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  UseGuards,
+  Query,
+  ParseIntPipe,
+} from '@nestjs/common';
+import { BusesService } from './buses.service';
+import { CreateBusDto } from './dto/create-bus.dto';
+import { UpdateBusDto } from './dto/update-bus.dto';
+import { CreateBusOwnerProfileDto } from './dto/bus-owner-profile.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { UserDocument, UserRole } from '../schemas/user.schema';
+import { BusStatus } from '../schemas/bus.schema';
+
+@Controller('buses')
+@UseGuards(JwtAuthGuard)
+export class BusesController {
+  constructor(private readonly busesService: BusesService) {}
+
+  // Bus Owner Profile Endpoints
+  @Post('owner/profile')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.BUS_OWNER)
+  createBusOwnerProfile(
+    @CurrentUser() user: UserDocument,
+    @Body() createBusOwnerProfileDto: CreateBusOwnerProfileDto,
+  ) {
+    return this.busesService.createBusOwnerProfile(
+      user._id.toString(),
+      createBusOwnerProfileDto,
+    );
+  }
+
+  @Get('owner/profile')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.BUS_OWNER, UserRole.ADMIN)
+  getBusOwnerProfile(@CurrentUser() user: UserDocument) {
+    return this.busesService.getBusOwnerProfile(user._id.toString());
+  }
+
+  @Patch('owner/profile/:id/approve')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  approveBusOwnerProfile(
+    @Param('id') id: string,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.busesService.approveBusOwnerProfile(id, user._id.toString());
+  }
+
+  @Patch('owner/profile/:id/reject')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  rejectBusOwnerProfile(
+    @Param('id') id: string,
+    @CurrentUser() user: UserDocument,
+    @Body('reason') reason: string,
+  ) {
+    return this.busesService.rejectBusOwnerProfile(
+      id,
+      user._id.toString(),
+      reason,
+    );
+  }
+
+  // Bus Management Endpoints
+  @Post()
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.BUS_OWNER)
+  createBus(
+    @CurrentUser() user: UserDocument,
+    @Body() createBusDto: CreateBusDto,
+  ) {
+    return this.busesService.createBus(user._id.toString(), createBusDto);
+  }
+
+  @Get()
+  findAllBuses(
+    @CurrentUser() user: UserDocument,
+    @Query('page', new ParseIntPipe({ optional: true })) page?: number,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query('status') status?: BusStatus,
+  ) {
+    return this.busesService.findAllBuses(user, page, limit, status);
+  }
+
+  @Get(':id')
+  findBusById(@Param('id') id: string, @CurrentUser() user: UserDocument) {
+    return this.busesService.findBusById(id, user);
+  }
+
+  @Patch(':id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.BUS_OWNER, UserRole.ADMIN)
+  updateBus(
+    @Param('id') id: string,
+    @Body() updateBusDto: UpdateBusDto,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.busesService.updateBus(id, updateBusDto, user);
+  }
+
+  @Delete(':id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.BUS_OWNER, UserRole.ADMIN)
+  deleteBus(@Param('id') id: string, @CurrentUser() user: UserDocument) {
+    return this.busesService.deleteBus(id, user);
+  }
+
+  @Patch(':id/seat-configuration')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.BUS_OWNER)
+  updateSeatConfiguration(
+    @Param('id') id: string,
+    @Body() seatConfiguration: any,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.busesService.updateSeatConfiguration(
+      id,
+      seatConfiguration,
+      user,
+    );
+  }
+
+  @Get(':id/seat-map')
+  async getSeatMap(@Param('id') id: string, @CurrentUser() user: UserDocument) {
+    const bus = await this.busesService.findBusById(id, user);
+    return {
+      seatConfiguration: bus.seatConfiguration,
+      totalSeats: bus.specifications.totalSeats,
+    };
+  }
+
+  @Patch(':id/approve')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  approveBus(@Param('id') id: string, @CurrentUser() user: UserDocument) {
+    return this.busesService.approveBus(id, user._id.toString());
+  }
+
+  @Patch(':id/reject')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  rejectBus(
+    @Param('id') id: string,
+    @CurrentUser() user: UserDocument,
+    @Body('reason') reason: string,
+  ) {
+    return this.busesService.rejectBus(id, user._id.toString(), reason);
+  }
+}
+</file>
+
+<file path="src/buses/buses.module.ts">
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { BusesService } from './buses.service';
+import { BusesController } from './buses.controller';
+import { Bus, BusSchema } from '../schemas/bus.schema';
+import {
+  BusOwnerProfile,
+  BusOwnerProfileSchema,
+} from '../schemas/bus-owner-profile.schema';
+
+@Module({
+  imports: [
+    MongooseModule.forFeature([
+      { name: Bus.name, schema: BusSchema },
+      { name: BusOwnerProfile.name, schema: BusOwnerProfileSchema },
+    ]),
+  ],
+  controllers: [BusesController],
+  providers: [BusesService],
+  exports: [BusesService],
+})
+export class BusesModule {}
+</file>
+
+<file path="src/buses/buses.service.ts">
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { Bus, BusDocument, BusStatus } from '../schemas/bus.schema';
+import {
+  BusOwnerProfile,
+  BusOwnerProfileDocument,
+  VerificationStatus,
+} from '../schemas/bus-owner-profile.schema';
+import { UserDocument, UserRole } from '../schemas/user.schema';
+import { CreateBusDto } from './dto/create-bus.dto';
+import { UpdateBusDto } from './dto/update-bus.dto';
+import { CreateBusOwnerProfileDto } from './dto/bus-owner-profile.dto';
+
+@Injectable()
+export class BusesService {
+  constructor(
+    @InjectModel(Bus.name) private busModel: Model<BusDocument>,
+    @InjectModel(BusOwnerProfile.name)
+    private busOwnerProfileModel: Model<BusOwnerProfileDocument>,
+  ) {}
+
+  // Bus Owner Profile Management
+  async createBusOwnerProfile(
+    userId: string,
+    createBusOwnerProfileDto: CreateBusOwnerProfileDto,
+  ) {
+    const existingProfile = await this.busOwnerProfileModel.findOne({
+      userId: new Types.ObjectId(userId),
+    });
+
+    if (existingProfile) {
+      throw new ConflictException('Bus owner profile already exists');
+    }
+
+    const profile = new this.busOwnerProfileModel({
+      userId: new Types.ObjectId(userId),
+      ...createBusOwnerProfileDto,
+    });
+
+    await profile.save();
+
+    return {
+      message: 'Bus owner profile created successfully',
+      profile: profile.toObject(),
+    };
+  }
+
+  async getBusOwnerProfile(userId: string) {
+    const profile = await this.busOwnerProfileModel
+      .findOne({ userId: new Types.ObjectId(userId) })
+      .populate('userId', 'email profile')
+      .populate('approvedBy', 'email profile.firstName profile.lastName');
+
+    if (!profile) {
+      throw new NotFoundException('Bus owner profile not found');
+    }
+
+    return profile;
+  }
+
+  async approveBusOwnerProfile(profileId: string, adminId: string) {
+    const profile = await this.busOwnerProfileModel.findById(profileId);
+
+    if (!profile) {
+      throw new NotFoundException('Bus owner profile not found');
+    }
+
+    profile.verificationStatus = VerificationStatus.APPROVED;
+    profile.approvedBy = new Types.ObjectId(adminId);
+    await profile.save();
+
+    return {
+      message: 'Bus owner profile approved successfully',
+      profile: profile.toObject(),
+    };
+  }
+
+  async rejectBusOwnerProfile(
+    profileId: string,
+    adminId: string,
+    reason: string,
+  ) {
+    const profile = await this.busOwnerProfileModel.findById(profileId);
+
+    if (!profile) {
+      throw new NotFoundException('Bus owner profile not found');
+    }
+
+    profile.verificationStatus = VerificationStatus.REJECTED;
+    profile.approvedBy = new Types.ObjectId(adminId);
+    profile.rejectionReason = reason;
+    await profile.save();
+
+    return {
+      message: 'Bus owner profile rejected',
+      profile: profile.toObject(),
+    };
+  }
+
+  // Bus Management
+  async createBus(ownerId: string, createBusDto: CreateBusDto) {
+    // Check if bus owner profile is approved
+    const ownerProfile = await this.busOwnerProfileModel.findOne({
+      userId: new Types.ObjectId(ownerId),
+    });
+
+    if (!ownerProfile) {
+      throw new BadRequestException('Bus owner profile not found');
+    }
+
+    if (ownerProfile.verificationStatus !== VerificationStatus.APPROVED) {
+      throw new ForbiddenException(
+        'Bus owner profile must be approved before registering buses',
+      );
+    }
+
+    // Check if registration number already exists
+    const existingBus = await this.busModel.findOne({
+      registrationNumber: createBusDto.registrationNumber,
+    });
+
+    if (existingBus) {
+      throw new ConflictException(
+        'Bus with this registration number already exists',
+      );
+    }
+
+    const bus = new this.busModel({
+      ownerId: new Types.ObjectId(ownerId),
+      ...createBusDto,
+    });
+
+    await bus.save();
+
+    return {
+      message: 'Bus registered successfully',
+      bus: bus.toObject(),
+    };
+  }
+
+  async findAllBuses(
+    user: UserDocument,
+    page: number = 1,
+    limit: number = 10,
+    status?: BusStatus,
+  ) {
+    const skip = (page - 1) * limit;
+    const filter: any = {};
+
+    // Role-based filtering
+    if (user.role === UserRole.BUS_OWNER) {
+      filter.ownerId = user._id;
+    }
+
+    if (status) {
+      filter.status = status;
+    }
+
+    const [buses, total] = await Promise.all([
+      this.busModel
+        .find(filter)
+        .populate('ownerId', 'email profile.firstName profile.lastName')
+        .populate('approvedBy', 'email profile.firstName profile.lastName')
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 }),
+      this.busModel.countDocuments(filter),
+    ]);
+
+    return {
+      buses,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async findBusById(id: string, user: UserDocument) {
+    const bus = await this.busModel
+      .findById(id)
+      .populate('ownerId', 'email profile.firstName profile.lastName')
+      .populate('approvedBy', 'email profile.firstName profile.lastName');
+
+    if (!bus) {
+      throw new NotFoundException('Bus not found');
+    }
+
+    // Check permissions
+    if (
+      user.role === UserRole.BUS_OWNER &&
+      bus.ownerId._id.toString() !== user._id.toString()
+    ) {
+      throw new ForbiddenException('Access denied to this bus');
+    }
+
+    return bus;
+  }
+
+  async updateBus(id: string, updateBusDto: UpdateBusDto, user: UserDocument) {
+    const bus = await this.findBusById(id, user);
+
+    // Only bus owner can update their own buses (except status changes by admin)
+    if (
+      user.role === UserRole.BUS_OWNER &&
+      bus.ownerId._id.toString() !== user._id.toString()
+    ) {
+      throw new ForbiddenException('Access denied to update this bus');
+    }
+
+    Object.assign(bus, updateBusDto);
+
+    if (updateBusDto.status && user.role === UserRole.ADMIN) {
+      if (updateBusDto.status === BusStatus.ACTIVE) {
+        bus.approvedBy = user._id;
+        bus.approvedAt = new Date();
+      }
+    }
+
+    await bus.save();
+
+    return {
+      message: 'Bus updated successfully',
+      bus: bus.toObject(),
+    };
+  }
+
+  async deleteBus(id: string, user: UserDocument) {
+    const bus = await this.findBusById(id, user);
+
+    if (
+      user.role === UserRole.BUS_OWNER &&
+      bus.ownerId._id.toString() !== user._id.toString()
+    ) {
+      throw new ForbiddenException('Access denied to delete this bus');
+    }
+
+    await this.busModel.findByIdAndDelete(id);
+
+    return { message: 'Bus deleted successfully' };
+  }
+
+  async updateSeatConfiguration(
+    busId: string,
+    seatConfiguration: any,
+    user: UserDocument,
+  ) {
+    const bus = await this.findBusById(busId, user);
+
+    if (
+      user.role === UserRole.BUS_OWNER &&
+      bus.ownerId._id.toString() !== user._id.toString()
+    ) {
+      throw new ForbiddenException('Access denied to update this bus');
+    }
+
+    bus.seatConfiguration = seatConfiguration;
+    await bus.save();
+
+    return {
+      message: 'Seat configuration updated successfully',
+      seatConfiguration: bus.seatConfiguration,
+    };
+  }
+
+  async approveBus(id: string, adminId: string) {
+    const bus = await this.busModel.findById(id);
+
+    if (!bus) {
+      throw new NotFoundException('Bus not found');
+    }
+
+    bus.status = BusStatus.ACTIVE;
+    bus.approvedBy = new Types.ObjectId(adminId);
+    bus.approvedAt = new Date();
+    await bus.save();
+
+    return {
+      message: 'Bus approved successfully',
+      bus: bus.toObject(),
+    };
+  }
+
+  async rejectBus(id: string, adminId: string, reason: string) {
+    const bus = await this.busModel.findById(id);
+
+    if (!bus) {
+      throw new NotFoundException('Bus not found');
+    }
+
+    bus.status = BusStatus.INACTIVE;
+    bus.approvedBy = new Types.ObjectId(adminId);
+    bus.rejectionReason = reason;
+    await bus.save();
+
+    return {
+      message: 'Bus rejected',
+      bus: bus.toObject(),
+    };
+  }
+}
+</file>
+
+<file path="src/buses/dto/bus-owner-profile.dto.ts">
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  ValidateNested,
+  IsArray,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class BankDetailsDto {
+  @IsString()
+  @IsNotEmpty()
+  bankName: string;
+
+  @IsString()
+  @IsNotEmpty()
+  accountNumber: string;
+
+  @IsString()
+  @IsNotEmpty()
+  accountHolderName: string;
+
+  @IsString()
+  @IsNotEmpty()
+  branchCode: string;
+}
+
+export class CreateBusOwnerProfileDto {
+  @IsString()
+  @IsNotEmpty()
+  businessName: string;
+
+  @IsString()
+  @IsNotEmpty()
+  businessLicense: string;
+
+  @IsString()
+  @IsOptional()
+  taxId?: string;
+
+  @ValidateNested()
+  @Type(() => BankDetailsDto)
+  @IsOptional()
+  bankDetails?: BankDetailsDto;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  documents?: string[];
+}
+
+export class UpdateBusOwnerProfileDto {
+  @IsString()
+  @IsOptional()
+  businessName?: string;
+
+  @IsString()
+  @IsOptional()
+  businessLicense?: string;
+
+  @IsString()
+  @IsOptional()
+  taxId?: string;
+
+  @ValidateNested()
+  @Type(() => BankDetailsDto)
+  @IsOptional()
+  bankDetails?: BankDetailsDto;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  documents?: string[];
+}
+</file>
+
+<file path="src/buses/dto/create-bus.dto.ts">
+import {
+  IsString,
+  IsNotEmpty,
+  IsEnum,
+  IsNumber,
+  IsArray,
+  ValidateNested,
+  IsOptional,
+  Min,
+  Max,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { BusType, SeatType } from '../../schemas/bus.schema';
+
+export class BusDetailsDto {
+  @IsString()
+  @IsNotEmpty()
+  make: string;
+
+  @IsString()
+  @IsNotEmpty()
+  model: string;
+
+  @IsNumber()
+  @Min(1990)
+  @Max(new Date().getFullYear() + 1)
+  year: number;
+
+  @IsString()
+  @IsOptional()
+  engineNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  chassisNumber?: string;
+}
+
+export class BusSpecificationsDto {
+  @IsNumber()
+  @Min(20)
+  @Max(56)
+  totalSeats: number;
+
+  @IsEnum(BusType)
+  busType: BusType;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  facilities?: string[];
+}
+
+export class SeatPositionDto {
+  @IsNumber()
+  @Min(1)
+  row: number;
+
+  @IsNumber()
+  @Min(1)
+  column: number;
+}
+
+export class SeatConfigurationDto {
+  @IsString()
+  @IsNotEmpty()
+  seatNumber: string;
+
+  @ValidateNested()
+  @Type(() => SeatPositionDto)
+  position: SeatPositionDto;
+
+  @IsEnum(SeatType)
+  @IsOptional()
+  type?: SeatType;
+
+  @IsOptional()
+  isActive?: boolean;
+
+  @IsNumber()
+  @Min(0.5)
+  @Max(3.0)
+  @IsOptional()
+  priceMultiplier?: number;
+}
+
+export class BusLayoutDto {
+  @IsString()
+  @IsOptional()
+  layoutType?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SeatConfigurationDto)
+  seatMap: SeatConfigurationDto[];
+
+  @IsNumber()
+  @Min(1)
+  totalRows: number;
+
+  @IsNumber()
+  @Min(2)
+  @Max(6)
+  seatsPerRow: number;
+
+  @IsNumber()
+  @Min(1)
+  @IsOptional()
+  aislePosition?: number;
+}
+
+export class CreateBusDto {
+  @IsString()
+  @IsNotEmpty()
+  registrationNumber: string;
+
+  @ValidateNested()
+  @Type(() => BusDetailsDto)
+  busDetails: BusDetailsDto;
+
+  @ValidateNested()
+  @Type(() => BusSpecificationsDto)
+  specifications: BusSpecificationsDto;
+
+  @ValidateNested()
+  @Type(() => BusLayoutDto)
+  seatConfiguration: BusLayoutDto;
+}
+</file>
+
+<file path="src/buses/dto/update-bus.dto.ts">
+import { PartialType } from '@nestjs/mapped-types';
+import { CreateBusDto } from './create-bus.dto';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { BusStatus } from '../../schemas/bus.schema';
+
+export class UpdateBusDto extends PartialType(CreateBusDto) {
+  @IsEnum(BusStatus)
+  @IsOptional()
+  status?: BusStatus;
+
+  @IsString()
+  @IsOptional()
+  rejectionReason?: string;
+}
+</file>
+
+<file path="src/routes/dto/create-bus-route.dto.ts">
+import {
+  IsString,
+  IsNotEmpty,
+  IsNumber,
+  IsArray,
+  ValidateNested,
+  IsBoolean,
+  IsOptional,
+  IsEnum,
+  IsDateString,
+  Min,
+  Max,
+  Matches,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { FrequencyType } from '../../schemas/bus-route.schema';
+
+export class ScheduleDto {
+  @IsString()
+  @Matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, {
+    message: 'departureTime must be in HH:MM format',
+  })
+  departureTime: string;
+
+  @IsString()
+  @Matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, {
+    message: 'arrivalTime must be in HH:MM format',
+  })
+  arrivalTime: string;
+
+  @IsEnum(FrequencyType)
+  @IsOptional()
+  frequency?: FrequencyType;
+
+  @IsArray()
+  @IsNumber({}, { each: true })
+  @IsOptional()
+  operatingDays?: number[];
+
+  @IsDateString()
+  effectiveFrom: string;
+
+  @IsDateString()
+  effectiveTo: string;
+}
+
+export class PricingDto {
+  @IsNumber()
+  @Min(0)
+  baseFare: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  farePerKm?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  dynamicPricing?: boolean;
+
+  @IsNumber()
+  @Min(0.5)
+  @Max(3.0)
+  @IsOptional()
+  peakHourMultiplier?: number;
+
+  @IsNumber()
+  @Min(0.5)
+  @Max(3.0)
+  @IsOptional()
+  weekendMultiplier?: number;
+
+  @IsNumber()
+  @Min(0.5)
+  @Max(3.0)
+  @IsOptional()
+  holidayMultiplier?: number;
+}
+
+export class DriverAssignmentDto {
+  @IsString()
+  @IsOptional()
+  primaryDriver?: string;
+
+  @IsString()
+  @IsOptional()
+  secondaryDriver?: string;
+
+  @IsString()
+  @IsOptional()
+  conductor?: string;
+}
+
+export class CreateBusRouteDto {
+  @IsString()
+  @IsNotEmpty()
+  busId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  routeId: string;
+
+  @ValidateNested()
+  @Type(() => ScheduleDto)
+  schedule: ScheduleDto;
+
+  @ValidateNested()
+  @Type(() => PricingDto)
+  pricing: PricingDto;
+
+  @ValidateNested()
+  @Type(() => DriverAssignmentDto)
+  @IsOptional()
+  driverAssignment?: DriverAssignmentDto;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  specialNotes?: string[];
+}
+</file>
+
+<file path="src/routes/dto/create-route.dto.ts">
+import {
+  IsString,
+  IsNotEmpty,
+  IsNumber,
+  IsArray,
+  ValidateNested,
+  IsBoolean,
+  IsOptional,
+  Min,
+  Max,
+  Matches,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class LocationDto {
+  @IsString()
+  @IsNotEmpty()
+  city: string;
+
+  @IsString()
+  @IsNotEmpty()
+  station: string;
+
+  @IsArray()
+  @IsNumber({}, { each: true })
+  coordinates: number[]; // [longitude, latitude]
+}
+
+export class IntermediateStopDto {
+  @IsString()
+  @IsNotEmpty()
+  city: string;
+
+  @IsString()
+  @IsNotEmpty()
+  station: string;
+
+  @IsArray()
+  @IsNumber({}, { each: true })
+  coordinates: number[];
+
+  @IsString()
+  @Matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, {
+    message: 'arrivalTime must be in HH:MM format',
+  })
+  arrivalTime: string;
+
+  @IsString()
+  @Matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, {
+    message: 'departureTime must be in HH:MM format',
+  })
+  departureTime: string;
+
+  @IsNumber()
+  @Min(0)
+  distanceFromOrigin: number;
+
+  @IsNumber()
+  @Min(0)
+  fareFromOrigin: number;
+
+  @IsNumber()
+  @Min(5)
+  @Max(60)
+  @IsOptional()
+  stopDuration?: number;
+}
+
+export class CreateRouteDto {
+  @IsString()
+  @IsNotEmpty()
+  routeName: string;
+
+  @ValidateNested()
+  @Type(() => LocationDto)
+  origin: LocationDto;
+
+  @ValidateNested()
+  @Type(() => LocationDto)
+  destination: LocationDto;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => IntermediateStopDto)
+  @IsOptional()
+  intermediateStops?: IntermediateStopDto[];
+
+  @IsNumber()
+  @Min(1)
+  totalDistance: number;
+
+  @IsNumber()
+  @Min(30)
+  estimatedDuration: number;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  popularTimes?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  operatingDays?: string[];
+}
+</file>
+
+<file path="src/routes/dto/update-bus-route.dto.ts">
+import { PartialType } from '@nestjs/mapped-types';
+import { CreateBusRouteDto } from './create-bus-route.dto';
+import { IsEnum, IsOptional } from 'class-validator';
+import { BusRouteStatus } from '../../schemas/bus-route.schema';
+
+export class UpdateBusRouteDto extends PartialType(CreateBusRouteDto) {
+  @IsEnum(BusRouteStatus)
+  @IsOptional()
+  status?: BusRouteStatus;
+}
+</file>
+
+<file path="src/routes/dto/update-route.dto.ts">
+import { PartialType } from '@nestjs/mapped-types';
+import { CreateRouteDto } from './create-route.dto';
+
+export class UpdateRouteDto extends PartialType(CreateRouteDto) {}
+</file>
+
+<file path="src/routes/routes.controller.ts">
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  UseGuards,
+  Query,
+  ParseIntPipe,
+  ParseBoolPipe,
+} from '@nestjs/common';
+import { RoutesService } from './routes.service';
+import { CreateRouteDto } from './dto/create-route.dto';
+import { UpdateRouteDto } from './dto/update-route.dto';
+import { CreateBusRouteDto } from './dto/create-bus-route.dto';
+import { UpdateBusRouteDto } from './dto/update-bus-route.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { UserDocument, UserRole } from '../schemas/user.schema';
+
+@Controller('routes')
+@UseGuards(JwtAuthGuard)
+export class RoutesController {
+  constructor(private readonly routesService: RoutesService) {}
+
+  // Route Management
+  @Post()
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.BUS_OWNER)
+  createRoute(
+    @Body() createRouteDto: CreateRouteDto,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.routesService.createRoute(createRouteDto, user);
+  }
+
+  @Get()
+  findAllRoutes(
+    @CurrentUser() user: UserDocument,
+    @Query('page', new ParseIntPipe({ optional: true })) page?: number,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query('search') search?: string,
+    @Query('isActive', new ParseBoolPipe({ optional: true }))
+    isActive?: boolean,
+  ) {
+    return this.routesService.findAllRoutes(
+      user,
+      page,
+      limit,
+      search,
+      isActive,
+    );
+  }
+
+  @Get('search')
+  searchRoutes(
+    @Query('origin') originCity: string,
+    @Query('destination') destinationCity: string,
+  ) {
+    return this.routesService.searchRoutes(originCity, destinationCity);
+  }
+
+  @Get('popular')
+  getPopularRoutes() {
+    return this.routesService.getPopularRoutes();
+  }
+
+  @Get(':id')
+  findRoute(@Param('id') id: string, @CurrentUser() user: UserDocument) {
+    return this.routesService.findRouteById(id, user);
+  }
+
+  @Patch(':id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.BUS_OWNER)
+  updateRoute(
+    @Param('id') id: string,
+    @Body() updateRouteDto: UpdateRouteDto,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.routesService.updateRoute(id, updateRouteDto, user);
+  }
+
+  @Delete(':id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.BUS_OWNER)
+  deleteRoute(@Param('id') id: string, @CurrentUser() user: UserDocument) {
+    return this.routesService.deleteRoute(id, user);
+  }
+
+  // Bus Route Assignment
+  @Post('bus-assignments')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.BUS_OWNER)
+  assignBusToRoute(
+    @Body() createBusRouteDto: CreateBusRouteDto,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.routesService.assignBusToRoute(createBusRouteDto, user);
+  }
+
+  @Get('bus-assignments/list')
+  findBusRoutes(
+    @CurrentUser() user: UserDocument,
+    @Query('page', new ParseIntPipe({ optional: true })) page?: number,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query('busId') busId?: string,
+    @Query('routeId') routeId?: string,
+  ) {
+    return this.routesService.findBusRoutes(user, page, limit, busId, routeId);
+  }
+
+  @Get('bus-assignments/:id')
+  findBusRoute(@Param('id') id: string, @CurrentUser() user: UserDocument) {
+    return this.routesService.findBusRouteById(id, user);
+  }
+
+  @Patch('bus-assignments/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.BUS_OWNER)
+  updateBusRoute(
+    @Param('id') id: string,
+    @Body() updateBusRouteDto: UpdateBusRouteDto,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.routesService.updateBusRoute(id, updateBusRouteDto, user);
+  }
+
+  @Delete('bus-assignments/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.BUS_OWNER)
+  deleteBusRoute(@Param('id') id: string, @CurrentUser() user: UserDocument) {
+    return this.routesService.deleteBusRoute(id, user);
+  }
+}
+</file>
+
+<file path="src/routes/routes.module.ts">
+import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { RoutesService } from './routes.service';
+import { RoutesController } from './routes.controller';
+import { Route, RouteSchema } from '../schemas/route.schema';
+import { BusRoute, BusRouteSchema } from '../schemas/bus-route.schema';
+import { Bus, BusSchema } from '../schemas/bus.schema';
+
+@Module({
+  imports: [
+    MongooseModule.forFeature([
+      { name: Route.name, schema: RouteSchema },
+      { name: BusRoute.name, schema: BusRouteSchema },
+      { name: Bus.name, schema: BusSchema },
+    ]),
+  ],
+  controllers: [RoutesController],
+  providers: [RoutesService],
+  exports: [RoutesService],
+})
+export class RoutesModule {}
+</file>
+
+<file path="src/routes/routes.service.ts">
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { Route, RouteDocument } from '../schemas/route.schema';
+import { BusRoute, BusRouteDocument } from '../schemas/bus-route.schema';
+import { Bus, BusDocument } from '../schemas/bus.schema';
+import { UserDocument, UserRole } from '../schemas/user.schema';
+import { CreateRouteDto } from './dto/create-route.dto';
+import { UpdateRouteDto } from './dto/update-route.dto';
+import { CreateBusRouteDto } from './dto/create-bus-route.dto';
+import { UpdateBusRouteDto } from './dto/update-bus-route.dto';
+
+@Injectable()
+export class RoutesService {
+  constructor(
+    @InjectModel(Route.name) private routeModel: Model<RouteDocument>,
+    @InjectModel(BusRoute.name) private busRouteModel: Model<BusRouteDocument>,
+    @InjectModel(Bus.name) private busModel: Model<BusDocument>,
+  ) {}
+
+  // Route Management
+  async createRoute(createRouteDto: CreateRouteDto, user: UserDocument) {
+    const route = new this.routeModel({
+      ...createRouteDto,
+      createdBy: user._id,
+    });
+
+    await route.save();
+
+    return {
+      message: 'Route created successfully',
+      route: route.toObject(),
+    };
+  }
+
+  async findAllRoutes(
+    user: UserDocument,
+    page: number = 1,
+    limit: number = 10,
+    search?: string,
+    isActive?: boolean,
+  ) {
+    const skip = (page - 1) * limit;
+    const filter: any = {};
+
+    // Role-based filtering
+    if (user.role === UserRole.BUS_OWNER) {
+      filter.createdBy = user._id;
+    }
+
+    if (isActive !== undefined) {
+      filter.isActive = isActive;
+    }
+
+    if (search) {
+      filter.$or = [
+        { routeName: { $regex: search, $options: 'i' } },
+        { 'origin.city': { $regex: search, $options: 'i' } },
+        { 'destination.city': { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const [routes, total] = await Promise.all([
+      this.routeModel
+        .find(filter)
+        .populate('createdBy', 'email profile.firstName profile.lastName')
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 }),
+      this.routeModel.countDocuments(filter),
+    ]);
+
+    return {
+      routes,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async findRouteById(id: string, user: UserDocument) {
+    const route = await this.routeModel
+      .findById(id)
+      .populate('createdBy', 'email profile.firstName profile.lastName');
+
+    if (!route) {
+      throw new NotFoundException('Route not found');
+    }
+
+    // Check permissions
+    if (
+      user.role === UserRole.BUS_OWNER &&
+      route.createdBy._id.toString() !== user._id.toString()
+    ) {
+      throw new ForbiddenException('Access denied to this route');
+    }
+
+    return route;
+  }
+
+  async updateRoute(
+    id: string,
+    updateRouteDto: UpdateRouteDto,
+    user: UserDocument,
+  ) {
+    const route = await this.findRouteById(id, user);
+
+    if (
+      user.role === UserRole.BUS_OWNER &&
+      route.createdBy._id.toString() !== user._id.toString()
+    ) {
+      throw new ForbiddenException('Access denied to update this route');
+    }
+
+    Object.assign(route, updateRouteDto);
+    await route.save();
+
+    return {
+      message: 'Route updated successfully',
+      route: route.toObject(),
+    };
+  }
+
+  async deleteRoute(id: string, user: UserDocument) {
+    const route = await this.findRouteById(id, user);
+
+    if (
+      user.role === UserRole.BUS_OWNER &&
+      route.createdBy._id.toString() !== user._id.toString()
+    ) {
+      throw new ForbiddenException('Access denied to delete this route');
+    }
+
+    // Check if route is assigned to any buses
+    const busRoutes = await this.busRouteModel.find({ routeId: id });
+    if (busRoutes.length > 0) {
+      throw new BadRequestException(
+        'Cannot delete route that is assigned to buses. Please remove bus assignments first.',
+      );
+    }
+
+    await this.routeModel.findByIdAndDelete(id);
+
+    return { message: 'Route deleted successfully' };
+  }
+
+  // Bus Route Assignment
+  async assignBusToRoute(
+    createBusRouteDto: CreateBusRouteDto,
+    user: UserDocument,
+  ) {
+    const { busId, routeId } = createBusRouteDto;
+
+    // Verify bus exists and user has permission
+    const bus = await this.busModel.findById(busId);
+    if (!bus) {
+      throw new NotFoundException('Bus not found');
+    }
+
+    if (
+      user.role === UserRole.BUS_OWNER &&
+      bus.ownerId.toString() !== user._id.toString()
+    ) {
+      throw new ForbiddenException('Access denied to this bus');
+    }
+
+    // Verify route exists
+    const route = await this.routeModel.findById(routeId);
+    if (!route) {
+      throw new NotFoundException('Route not found');
+    }
+
+    // Check if bus is already assigned to this route
+    const existingAssignment = await this.busRouteModel.findOne({
+      busId: new Types.ObjectId(busId),
+      routeId: new Types.ObjectId(routeId),
+    });
+
+    if (existingAssignment) {
+      throw new ConflictException('Bus is already assigned to this route');
+    }
+
+    // Convert driver IDs to ObjectIds
+    const driverAssignment = createBusRouteDto.driverAssignment;
+    if (driverAssignment) {
+      if (driverAssignment.primaryDriver) {
+        driverAssignment.primaryDriver = new Types.ObjectId(
+          driverAssignment.primaryDriver,
+        ) as any;
+      }
+      if (driverAssignment.secondaryDriver) {
+        driverAssignment.secondaryDriver = new Types.ObjectId(
+          driverAssignment.secondaryDriver,
+        ) as any;
+      }
+      if (driverAssignment.conductor) {
+        driverAssignment.conductor = new Types.ObjectId(
+          driverAssignment.conductor,
+        ) as any;
+      }
+    }
+
+    const busRoute = new this.busRouteModel({
+      busId: new Types.ObjectId(busId),
+      routeId: new Types.ObjectId(routeId),
+      schedule: createBusRouteDto.schedule,
+      pricing: createBusRouteDto.pricing,
+      driverAssignment,
+      specialNotes: createBusRouteDto.specialNotes,
+      createdBy: user._id,
+    });
+
+    await busRoute.save();
+
+    return {
+      message: 'Bus assigned to route successfully',
+      busRoute: busRoute.toObject(),
+    };
+  }
+
+  async findBusRoutes(
+    user: UserDocument,
+    page: number = 1,
+    limit: number = 10,
+    busId?: string,
+    routeId?: string,
+  ) {
+    const skip = (page - 1) * limit;
+    const filter: any = {};
+
+    if (busId) {
+      filter.busId = new Types.ObjectId(busId);
+    }
+
+    if (routeId) {
+      filter.routeId = new Types.ObjectId(routeId);
+    }
+
+    // Role-based filtering
+    if (user.role === UserRole.BUS_OWNER) {
+      filter.createdBy = user._id;
+    }
+
+    const [busRoutes, total] = await Promise.all([
+      this.busRouteModel
+        .find(filter)
+        .populate('busId', 'registrationNumber specifications')
+        .populate('routeId', 'routeName origin destination')
+        .populate('createdBy', 'email profile.firstName profile.lastName')
+        .populate(
+          'driverAssignment.primaryDriver',
+          'email profile.firstName profile.lastName',
+        )
+        .populate(
+          'driverAssignment.secondaryDriver',
+          'email profile.firstName profile.lastName',
+        )
+        .populate(
+          'driverAssignment.conductor',
+          'email profile.firstName profile.lastName',
+        )
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 }),
+      this.busRouteModel.countDocuments(filter),
+    ]);
+
+    return {
+      busRoutes,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async findBusRouteById(id: string, user: UserDocument) {
+    const busRoute = await this.busRouteModel
+      .findById(id)
+      .populate('busId', 'registrationNumber specifications')
+      .populate('routeId', 'routeName origin destination intermediateStops')
+      .populate('createdBy', 'email profile.firstName profile.lastName')
+      .populate(
+        'driverAssignment.primaryDriver',
+        'email profile.firstName profile.lastName',
+      )
+      .populate(
+        'driverAssignment.secondaryDriver',
+        'email profile.firstName profile.lastName',
+      )
+      .populate(
+        'driverAssignment.conductor',
+        'email profile.firstName profile.lastName',
+      );
+
+    if (!busRoute) {
+      throw new NotFoundException('Bus route assignment not found');
+    }
+
+    // Check permissions
+    if (
+      user.role === UserRole.BUS_OWNER &&
+      busRoute.createdBy._id.toString() !== user._id.toString()
+    ) {
+      throw new ForbiddenException('Access denied to this bus route');
+    }
+
+    return busRoute;
+  }
+
+  async updateBusRoute(
+    id: string,
+    updateBusRouteDto: UpdateBusRouteDto,
+    user: UserDocument,
+  ) {
+    const busRoute = await this.findBusRouteById(id, user);
+
+    if (
+      user.role === UserRole.BUS_OWNER &&
+      busRoute.createdBy._id.toString() !== user._id.toString()
+    ) {
+      throw new ForbiddenException('Access denied to update this bus route');
+    }
+
+    Object.assign(busRoute, updateBusRouteDto);
+    await busRoute.save();
+
+    return {
+      message: 'Bus route updated successfully',
+      busRoute: busRoute.toObject(),
+    };
+  }
+
+  async deleteBusRoute(id: string, user: UserDocument) {
+    const busRoute = await this.findBusRouteById(id, user);
+
+    if (
+      user.role === UserRole.BUS_OWNER &&
+      busRoute.createdBy._id.toString() !== user._id.toString()
+    ) {
+      throw new ForbiddenException('Access denied to delete this bus route');
+    }
+
+    await this.busRouteModel.findByIdAndDelete(id);
+
+    return { message: 'Bus route assignment deleted successfully' };
+  }
+
+  // Search routes between cities
+  async searchRoutes(originCity: string, destinationCity: string) {
+    const routes = await this.routeModel.find({
+      'origin.city': { $regex: originCity, $options: 'i' },
+      'destination.city': { $regex: destinationCity, $options: 'i' },
+      isActive: true,
+    });
+
+    return {
+      routes,
+      count: routes.length,
+    };
+  }
+
+  // Get popular routes
+  async getPopularRoutes() {
+    const routes = await this.routeModel.aggregate([
+      { $match: { isActive: true } },
+      {
+        $lookup: {
+          from: 'busroutes',
+          localField: '_id',
+          foreignField: 'routeId',
+          as: 'busAssignments',
+        },
+      },
+      {
+        $addFields: {
+          busCount: { $size: '$busAssignments' },
+        },
+      },
+      { $sort: { busCount: -1 } },
+      { $limit: 10 },
+    ]);
+
+    return {
+      routes,
+      message: 'Popular routes retrieved successfully',
+    };
+  }
+}
+</file>
+
+<file path="src/schemas/bus-owner-profile.schema.ts">
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
+
+export type BusOwnerProfileDocument = BusOwnerProfile &
+  Document & { _id: Types.ObjectId };
+
+export enum VerificationStatus {
+  PENDING = 'pending',
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
+}
+
+@Schema({ timestamps: true })
+export class BusOwnerProfile {
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true, unique: true })
+  userId: Types.ObjectId;
+
+  @Prop({ required: true })
+  businessName: string;
+
+  @Prop({ required: true })
+  businessLicense: string;
+
+  @Prop()
+  taxId?: string;
+
+  @Prop({
+    type: {
+      bankName: String,
+      accountNumber: String,
+      accountHolderName: String,
+      branchCode: String,
+    },
+  })
+  bankDetails?: {
+    bankName: string;
+    accountNumber: string;
+    accountHolderName: string;
+    branchCode: string;
+  };
+
+  @Prop({ type: [String], default: [] })
+  documents: string[];
+
+  @Prop({ enum: VerificationStatus, default: VerificationStatus.PENDING })
+  verificationStatus: VerificationStatus;
+
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  approvedBy?: Types.ObjectId;
+
+  @Prop()
+  rejectionReason?: string;
+}
+
+export const BusOwnerProfileSchema =
+  SchemaFactory.createForClass(BusOwnerProfile);
+
+// Indexes
+BusOwnerProfileSchema.index({ userId: 1 });
+BusOwnerProfileSchema.index({ verificationStatus: 1 });
+</file>
+
+<file path="src/schemas/bus-route.schema.ts">
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
+
+export type BusRouteDocument = BusRoute & Document & { _id: Types.ObjectId };
+
+export enum FrequencyType {
+  DAILY = 'daily',
+  WEEKLY = 'weekly',
+  CUSTOM = 'custom',
+}
+
+export enum BusRouteStatus {
+  ACTIVE = 'active',
+  SUSPENDED = 'suspended',
+  MAINTENANCE = 'maintenance',
+}
+
+@Schema({ _id: false })
+export class Schedule {
+  @Prop({ required: true })
+  departureTime: string; // "06:00"
+
+  @Prop({ required: true })
+  arrivalTime: string; // "12:00"
+
+  @Prop({ enum: FrequencyType, default: FrequencyType.DAILY })
+  frequency: FrequencyType;
+
+  @Prop({ type: [Number], default: [1, 2, 3, 4, 5, 6, 0] }) // 0=Sunday, 1=Monday, etc.
+  operatingDays: number[];
+
+  @Prop({ required: true })
+  effectiveFrom: Date;
+
+  @Prop({ required: true })
+  effectiveTo: Date;
+}
+
+@Schema({ _id: false })
+export class Pricing {
+  @Prop({ required: true })
+  baseFare: number; // Base fare in LKR
+
+  @Prop({ default: 2.5 })
+  farePerKm: number; // Per km rate
+
+  @Prop({ default: false })
+  dynamicPricing: boolean;
+
+  @Prop({ default: 1.0 })
+  peakHourMultiplier: number;
+
+  @Prop({ default: 1.0 })
+  weekendMultiplier: number;
+
+  @Prop({ default: 1.0 })
+  holidayMultiplier: number;
+}
+
+@Schema({ _id: false })
+export class DriverAssignment {
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  primaryDriver?: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  secondaryDriver?: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  conductor?: Types.ObjectId;
+}
+
+@Schema({ timestamps: true })
+export class BusRoute {
+  @Prop({ type: Types.ObjectId, ref: 'Bus', required: true })
+  busId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Route', required: true })
+  routeId: Types.ObjectId;
+
+  @Prop({ type: Schedule, required: true })
+  schedule: Schedule;
+
+  @Prop({ type: Pricing, required: true })
+  pricing: Pricing;
+
+  @Prop({ type: DriverAssignment })
+  driverAssignment?: DriverAssignment;
+
+  @Prop({ enum: BusRouteStatus, default: BusRouteStatus.ACTIVE })
+  status: BusRouteStatus;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  createdBy: Types.ObjectId;
+
+  @Prop({ type: [String], default: [] })
+  specialNotes: string[];
+}
+
+export const BusRouteSchema = SchemaFactory.createForClass(BusRoute);
+
+// Indexes
+BusRouteSchema.index({ busId: 1, routeId: 1 }, { unique: true });
+BusRouteSchema.index({ routeId: 1 });
+BusRouteSchema.index({ busId: 1 });
+BusRouteSchema.index({ status: 1 });
+BusRouteSchema.index({ createdBy: 1 });
+</file>
+
+<file path="src/schemas/bus.schema.ts">
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
+
+export type BusDocument = Bus & Document & { _id: Types.ObjectId };
+
+export enum BusType {
+  AC = 'ac',
+  NON_AC = 'non-ac',
+  SEMI_LUXURY = 'semi-luxury',
+  LUXURY = 'luxury',
+}
+
+export enum BusStatus {
+  ACTIVE = 'active',
+  INACTIVE = 'inactive',
+  MAINTENANCE = 'maintenance',
+  PENDING_APPROVAL = 'pending_approval',
+}
+
+export enum SeatType {
+  REGULAR = 'regular',
+  VIP = 'vip',
+  LADIES = 'ladies',
+  DISABLED = 'disabled',
+}
+
+@Schema({ _id: false })
+export class SeatPosition {
+  @Prop({ required: true })
+  row: number;
+
+  @Prop({ required: true })
+  column: number;
+}
+
+@Schema({ _id: false })
+export class SeatConfiguration {
+  @Prop({ required: true })
+  seatNumber: string;
+
+  @Prop({ type: SeatPosition, required: true })
+  position: SeatPosition;
+
+  @Prop({ enum: SeatType, default: SeatType.REGULAR })
+  type: SeatType;
+
+  @Prop({ default: true })
+  isActive: boolean;
+
+  @Prop({ default: 1.0 })
+  priceMultiplier: number;
+}
+
+@Schema({ _id: false })
+export class BusLayout {
+  @Prop({ default: '2x2' })
+  layoutType: string;
+
+  @Prop({ type: [SeatConfiguration], default: [] })
+  seatMap: SeatConfiguration[];
+
+  @Prop({ required: true })
+  totalRows: number;
+
+  @Prop({ required: true })
+  seatsPerRow: number;
+
+  @Prop({ default: 2 })
+  aislePosition: number;
+}
+
+@Schema({ timestamps: true })
+export class Bus {
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  ownerId: Types.ObjectId;
+
+  @Prop({ required: true, unique: true })
+  registrationNumber: string;
+
+  @Prop({
+    type: {
+      make: { type: String, required: true },
+      model: { type: String, required: true },
+      year: { type: Number, required: true },
+      engineNumber: String,
+      chassisNumber: String,
+    },
+    required: true,
+  })
+  busDetails: {
+    make: string;
+    model: string;
+    year: number;
+    engineNumber?: string;
+    chassisNumber?: string;
+  };
+
+  @Prop({
+    type: {
+      totalSeats: { type: Number, required: true },
+      busType: { type: String, enum: BusType, required: true },
+      facilities: [String],
+    },
+    required: true,
+  })
+  specifications: {
+    totalSeats: number;
+    busType: BusType;
+    facilities: string[];
+  };
+
+  @Prop({ type: BusLayout, required: true })
+  seatConfiguration: BusLayout;
+
+  @Prop({ type: [String], default: [] })
+  documents: string[];
+
+  @Prop({ type: [String], default: [] })
+  images: string[];
+
+  @Prop({ enum: BusStatus, default: BusStatus.PENDING_APPROVAL })
+  status: BusStatus;
+
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  approvedBy?: Types.ObjectId;
+
+  @Prop()
+  approvedAt?: Date;
+
+  @Prop()
+  rejectionReason?: string;
+}
+
+export const BusSchema = SchemaFactory.createForClass(Bus);
+
+// Indexes for better performance
+BusSchema.index({ ownerId: 1 });
+BusSchema.index({ registrationNumber: 1 });
+BusSchema.index({ status: 1 });
+BusSchema.index({ 'specifications.busType': 1 });
+</file>
+
+<file path="src/schemas/route.schema.ts">
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
+
+export type RouteDocument = Route & Document & { _id: Types.ObjectId };
+
+@Schema({ _id: false })
+export class Location {
+  @Prop({ required: true })
+  city: string;
+
+  @Prop({ required: true })
+  station: string;
+
+  @Prop({ type: [Number], required: true }) // [longitude, latitude]
+  coordinates: number[];
+}
+
+@Schema({ _id: false })
+export class IntermediateStop {
+  @Prop({ required: true })
+  city: string;
+
+  @Prop({ required: true })
+  station: string;
+
+  @Prop({ type: [Number], required: true })
+  coordinates: number[];
+
+  @Prop({ required: true })
+  arrivalTime: string; // "14:30"
+
+  @Prop({ required: true })
+  departureTime: string; // "14:45"
+
+  @Prop({ required: true })
+  distanceFromOrigin: number; // in km
+
+  @Prop({ required: true })
+  fareFromOrigin: number; // in LKR
+
+  @Prop({ default: 10 })
+  stopDuration: number; // in minutes
+}
+
+@Schema({ timestamps: true })
+export class Route {
+  @Prop({ required: true })
+  routeName: string;
+
+  @Prop({ type: Location, required: true })
+  origin: Location;
+
+  @Prop({ type: Location, required: true })
+  destination: Location;
+
+  @Prop({ type: [IntermediateStop], default: [] })
+  intermediateStops: IntermediateStop[];
+
+  @Prop({ required: true })
+  totalDistance: number; // in km
+
+  @Prop({ required: true })
+  estimatedDuration: number; // in minutes
+
+  @Prop({ default: true })
+  isActive: boolean;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  createdBy: Types.ObjectId;
+
+  @Prop({ type: [String], default: [] })
+  popularTimes: string[]; // ["06:00", "18:00"]
+
+  @Prop({ type: [String], default: [] })
+  operatingDays: string[]; // ["monday", "tuesday", ...]
+}
+
+export const RouteSchema = SchemaFactory.createForClass(Route);
+
+// Indexes for better performance
+RouteSchema.index({ 'origin.city': 1, 'destination.city': 1 });
+RouteSchema.index({ isActive: 1 });
+RouteSchema.index({ createdBy: 1 });
+RouteSchema.index({ routeName: 1 });
+</file>
+
 <file path="src/schemas/user.schema.ts">
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
@@ -584,289 +2603,42 @@ UserSchema.index({ role: 1 });
 UserSchema.index({ status: 1 });
 </file>
 
-<file path=".gitignore">
-# compiled output
-/dist
-/node_modules
-/build
-
-# Logs
-logs
-*.log
-npm-debug.log*
-pnpm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
-
-# OS
-.DS_Store
-
-# Tests
-/coverage
-/.nyc_output
-
-# IDEs and editors
-/.idea
-.project
-.classpath
-.c9/
-*.launch
-.settings/
-*.sublime-workspace
-
-# IDE - VSCode
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-
-# dotenv environment variable files
-.env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
-
-# temp directory
-.temp
-.tmp
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Diagnostic reports (https://nodejs.org/api/report.html)
-report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
-</file>
-
-<file path=".prettierrc">
-{
-  "singleQuote": true,
-  "trailingComma": "all",
-  "endOfLine": "lf",
-  "tabWidth": 2,
-  "semi": true,
-  "printWidth": 80
-}
-</file>
-
-<file path="eslint.config.mjs">
-// @ts-check
-import eslint from '@eslint/js';
-import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
-import globals from 'globals';
-import tseslint from 'typescript-eslint';
-
-export default tseslint.config(
-  {
-    ignores: ['eslint.config.mjs'],
-  },
-  eslint.configs.recommended,
-  ...tseslint.configs.recommendedTypeChecked,
-  eslintPluginPrettierRecommended,
-  {
-    languageOptions: {
-      globals: {
-        ...globals.node,
-        ...globals.jest,
-      },
-      sourceType: 'commonjs',
-      parserOptions: {
-        projectService: true,
-        tsconfigRootDir: import.meta.dirname,
-      },
-    },
-  },
-  {
-    rules: {
-      '@typescript-eslint/no-explicit-any': 'off',
-      '@typescript-eslint/no-floating-promises': 'warn',
-      '@typescript-eslint/no-unsafe-argument': 'warn'
-    },
-  },
-);
-</file>
-
-<file path="nest-cli.json">
-{
-  "$schema": "https://json.schemastore.org/nest-cli",
-  "collection": "@nestjs/schematics",
-  "sourceRoot": "src",
-  "compilerOptions": {
-    "deleteOutDir": true
-  }
-}
-</file>
-
-<file path="package.json">
-{
-  "name": "bus-management-backend",
-  "version": "0.0.1",
-  "description": "",
-  "author": "",
-  "private": true,
-  "license": "UNLICENSED",
-  "scripts": {
-    "build": "nest build",
-    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "start": "nest start",
-    "start:dev": "nest start --watch",
-    "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
-    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
-  },
-  "dependencies": {
-    "@nestjs/common": "^11.0.1",
-    "@nestjs/config": "^4.0.2",
-    "@nestjs/core": "^11.0.1",
-    "@nestjs/jwt": "^11.0.0",
-    "@nestjs/mongoose": "^11.0.3",
-    "@nestjs/passport": "^11.0.5",
-    "@nestjs/platform-express": "^11.0.1",
-    "bcrypt": "^6.0.0",
-    "class-transformer": "^0.5.1",
-    "class-validator": "^0.14.2",
-    "mongoose": "^8.16.3",
-    "passport": "^0.7.0",
-    "passport-jwt": "^4.0.1",
-    "passport-local": "^1.0.0",
-    "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
-  },
-  "devDependencies": {
-    "@eslint/eslintrc": "^3.2.0",
-    "@eslint/js": "^9.18.0",
-    "@nestjs/cli": "^11.0.0",
-    "@nestjs/schematics": "^11.0.0",
-    "@nestjs/testing": "^11.0.1",
-    "@swc/cli": "^0.6.0",
-    "@swc/core": "^1.10.7",
-    "@types/bcrypt": "^5.0.2",
-    "@types/express": "^5.0.0",
-    "@types/jest": "^29.5.14",
-    "@types/node": "^22.10.7",
-    "@types/passport-jwt": "^4.0.1",
-    "@types/passport-local": "^1.0.38",
-    "@types/supertest": "^6.0.2",
-    "eslint": "^9.18.0",
-    "eslint-config-prettier": "^10.0.1",
-    "eslint-plugin-prettier": "^5.2.2",
-    "globals": "^16.0.0",
-    "jest": "^29.7.0",
-    "prettier": "^3.4.2",
-    "source-map-support": "^0.5.21",
-    "supertest": "^7.0.0",
-    "ts-jest": "^29.2.5",
-    "ts-loader": "^9.5.2",
-    "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.7.3",
-    "typescript-eslint": "^8.20.0"
-  },
-  "jest": {
-    "moduleFileExtensions": [
-      "js",
-      "json",
-      "ts"
-    ],
-    "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
-    "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
-    },
-    "collectCoverageFrom": [
-      "**/*.(t|j)s"
-    ],
-    "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
-  }
-}
-</file>
-
-<file path="src/app.controller.spec.ts">
+<file path="test/app.e2e-spec.ts">
 import { Test, TestingModule } from '@nestjs/testing';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { INestApplication } from '@nestjs/common';
+import * as request from 'supertest';
+import { App } from 'supertest/types';
+import { AppModule } from './../src/app.module';
 
-describe('AppController', () => {
-  let appController: AppController;
+describe('AppController (e2e)', () => {
+  let app: INestApplication<App>;
 
   beforeEach(async () => {
-    const app: TestingModule = await Test.createTestingModule({
-      controllers: [AppController],
-      providers: [AppService],
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
     }).compile();
 
-    appController = app.get<AppController>(AppController);
+    app = moduleFixture.createNestApplication();
+    await app.init();
   });
 
-  describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
-    });
+  it('/ (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/')
+      .expect(200)
+      .expect('Hello World!');
   });
 });
 </file>
 
-<file path="src/app.controller.ts">
-import { Controller, Get } from '@nestjs/common';
-import { AppService } from './app.service';
-
-@Controller()
-export class AppController {
-  constructor(private readonly appService: AppService) {}
-
-  @Get()
-  getHello(): string {
-    return this.appService.getHello();
-  }
-}
-</file>
-
-<file path="src/app.module.ts">
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { MongooseModule } from '@nestjs/mongoose';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { AuthModule } from './auth/auth.module';
-
-@Module({
-  imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: '.env',
-    }),
-    MongooseModule.forRootAsync({
-      useFactory: () => ({
-        uri: process.env.MONGODB_URI,
-        dbName: process.env.DATABASE_NAME,
-      }),
-    }),
-    AuthModule,
-  ],
-  controllers: [AppController],
-  providers: [AppService],
-})
-export class AppModule {}
-</file>
-
-<file path="src/app.service.ts">
-import { Injectable } from '@nestjs/common';
-
-@Injectable()
-export class AppService {
-  getHello(): string {
-    return 'Hello World!';
+<file path="test/jest-e2e.json">
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
   }
 }
 </file>
@@ -904,3 +2676,38 @@ async function bootstrap() {
 }
 bootstrap();
 </file>
+
+
+<file path="src/app.module.ts">
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { MongooseModule } from '@nestjs/mongoose';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
+import { BusesModule } from './buses/buses.module';
+import { RoutesModule } from './routes/routes.module'; // Add this import
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+    }),
+    MongooseModule.forRootAsync({
+      useFactory: () => ({
+        uri: process.env.MONGODB_URI,
+        dbName: process.env.DATABASE_NAME,
+      }),
+    }),
+    AuthModule,
+    BusesModule,
+    RoutesModule, // Add this line
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+</file>
+
+</files>
