@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { BusesModule } from './buses/buses.module';
+import { RoutesModule } from './routes/routes.module'; // Add this import
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { BusesModule } from './buses/buses.module';
     }),
     AuthModule,
     BusesModule,
+    RoutesModule, // Add this line
   ],
   controllers: [AppController],
   providers: [AppService],
