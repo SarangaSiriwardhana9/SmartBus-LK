@@ -6,7 +6,10 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { BusesModule } from './buses/buses.module';
 import { RoutesModule } from './routes/routes.module';
-import { BookingsModule } from './bookings/bookings.module'; // Add this
+import { BookingsModule } from './bookings/bookings.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { UsersModule } from './users/users.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -23,7 +26,10 @@ import { BookingsModule } from './bookings/bookings.module'; // Add this
     AuthModule,
     BusesModule,
     RoutesModule,
-    BookingsModule, // Add this
+    BookingsModule,
+    DashboardModule,
+    UsersModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
